@@ -454,6 +454,17 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                         f"{self.itr}: step {cnt_train_step:8d} | loss {loss:8.4f} | pg loss {pg_loss:8.4f} | value loss {v_loss:8.4f} | bc loss {bc_loss:8.4f} | reward {avg_episode_reward:8.4f} | eta {eta:8.4f} | t:{time:8.4f}"
                     )
                     if self.use_wandb:
+                        # Exploration metrics
+                        final_actions = chains_trajs[:, :, -1, :, :]
+                        action_std = float(np.std(final_actions))
+                        action_mean_abs = float(np.mean(np.abs(final_actions)))
+
+                        logprob_std_per_step = np.std(logprobs_trajs, axis=0).mean(axis=(-1, -2))
+                        exploration_log = {
+                            f"exploration/logprob_std_step_{i}": float(logprob_std_per_step[i])
+                            for i in range(len(logprob_std_per_step))
+                        }
+
                         wandb.log(
                             {
                                 "total env step": cnt_train_step,
@@ -470,9 +481,11 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                                 "num episode - train": num_episode_finished,
                                 "diffusion - min sampling std": diffusion_min_sampling_std,
                                 "actor lr": self.actor_optimizer.param_groups[0]["lr"],
-                                "critic lr": self.critic_optimizer.param_groups[0][
-                                    "lr"
-                                ],
+                                "critic lr": self.critic_optimizer.param_groups[0]["lr"],
+                                # Exploration metrics
+                                "exploration/action_std": action_std,
+                                "exploration/action_mean_abs": action_mean_abs,
+                                **exploration_log,
                             },
                             step=self.itr,
                             commit=True,
