@@ -106,6 +106,16 @@ def make_async(
         )
         return env
 
+    if env_type == "maniskill":
+        from env.maniskill_utils import make_maniskill
+        return make_maniskill(
+            id=id,
+            num_envs=num_envs,
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            max_episode_steps=max_episode_steps,
+        )
+
     # avoid import error due incompatible gym versions
     from gym import spaces
     from env.gym_utils.async_vector_env import AsyncVectorEnv
