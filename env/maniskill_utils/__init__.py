@@ -18,7 +18,7 @@ import torch
 class ManiSkillVecEnv:
     def __init__(self, env, normalization_path=None):
         self.env = env
-        self.n_envs = env.num_envs
+        self.n_envs = env.unwrapped.num_envs
         self.observation_space = env.observation_space
         self.action_space = env.action_space
 
@@ -60,6 +60,9 @@ class ManiSkillVecEnv:
     def step(self, actions):
         if isinstance(actions, np.ndarray):
             actions = torch.from_numpy(actions).float().cuda()
+        # actions shape: [n_envs, act_steps, action_dim]
+        if actions.dim() == 3:
+            actions = actions[:, 0, :]
         obs, reward, terminated, truncated, info = self.env.step(actions)
         obs_dict = self._wrap_obs(obs)
         reward_np = self._to_numpy(reward)
