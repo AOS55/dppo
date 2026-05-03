@@ -62,6 +62,10 @@ furniture = [
 exact = [   # exact likelihood
     "torchdiffeq",
 ]
+maniskill = [
+    "mani-skill",
+    "gymnasium>=0.29.0",
+]
 all = [
     "cython<3",
     "d4rl",
