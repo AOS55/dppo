@@ -28,6 +28,10 @@ class EvalAgent:
         # Make vectorized env
         self.env_name = cfg.env.name
         env_type = cfg.env.get("env_type", None)
+        # Set up render dir before `make_async` so it can be passed to env
+        self.logdir = cfg.logdir
+        self.render_dir = os.path.join(self.logdir, "render")
+        os.makedirs(self.render_dir, exist_ok=True)
         self.venv = make_async(
             cfg.env.name,
             env_type=env_type,
@@ -42,6 +46,7 @@ class EvalAgent:
             render_offscreen=cfg.env.get("save_video", False),
             obs_dim=cfg.obs_dim,
             action_dim=cfg.action_dim,
+            render_dir=self.render_dir,
             **cfg.env.specific if "specific" in cfg.env else {},
         )
         if not env_type == "furniture":
