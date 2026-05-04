@@ -22,15 +22,13 @@ horizon_steps: 4
 act_steps: 4
 
 env:
-  n_envs: 40
+  n_envs: 400
   name: ${env_name}
   env_type: maniskill
   max_episode_steps: 200
   reset_at_iteration: True
   save_video: False
   best_reward_threshold_for_success: 0.5
-  specific:
-    normalization_path: ${normalization_path}
 
 wandb:
   entity: ${oc.env:DPPO_WANDB_ENTITY}
