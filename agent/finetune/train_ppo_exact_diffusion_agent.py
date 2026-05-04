@@ -208,11 +208,13 @@ class TrainPPOExactDiffusionAgent(TrainPPODiffusionAgent):
                         else:
                             nextvalues = values_trajs[t + 1]
                         nonterminal = 1.0 - terminated_trajs[t]
+                        # delta = r + gamma*V(st+1) - V(st)
                         delta = (
                             reward_trajs[t] * self.reward_scale_const
                             + self.gamma * nextvalues * nonterminal
                             - values_trajs[t]
                         )
+                        # A = delta_t + gamma*lamdba*delta_{t+1} + ...
                         advantages_trajs[t] = lastgaelam = (
                             delta
                             + self.gamma * self.gae_lambda * nonterminal * lastgaelam
