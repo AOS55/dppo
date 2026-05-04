@@ -22,7 +22,7 @@ horizon_steps: 4
 act_steps: 4
 
 env:
-  n_envs: 400
+  n_envs: 40
   name: ${env_name}
   env_type: maniskill
   max_episode_steps: 200
