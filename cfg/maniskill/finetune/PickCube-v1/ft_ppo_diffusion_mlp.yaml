@@ -7,7 +7,7 @@ _target_: agent.finetune.train_ppo_diffusion_agent.TrainPPODiffusionAgent
 
 name: ${env_name}_ppo_diffusion_mlp_ta${horizon_steps}_td${denoising_steps}_tdf${ft_denoising_steps}
 logdir: ${oc.env:DPPO_LOG_DIR}/maniskill-finetune/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}
-base_policy_path: ${oc.env:DPPO_LOG_DIR}/maniskill-pretrain/PickCube-v1_pre_diffusion_mlp_ta4_td20/checkpoint/state_3000.pt
+base_policy_path: ${oc.env:DPPO_LOG_DIR}/maniskill-pretrain/PickCube-v1_pre_diffusion_mlp_ta4_td20/2026-05-03_21-45-21_42/checkpoint/state_3000.pt
 normalization_path: ${oc.env:DPPO_DATA_DIR}/maniskill/${env_name}/normalization.npz
 
 seed: 42
@@ -28,7 +28,7 @@ env:
   max_episode_steps: 200
   reset_at_iteration: False
   save_video: False
-  best_reward_threshold_for_success: 1
+  best_reward_threshold_for_success: 0.5
 
 wandb:
   entity: ${oc.env:DPPO_WANDB_ENTITY}

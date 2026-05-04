@@ -65,7 +65,7 @@ class ManiSkillVecEnv:
             actions = actions[:, 0, :]
         obs, reward, terminated, truncated, info = self.env.step(actions)
         obs_dict = self._wrap_obs(obs)
-        reward_np = self._to_numpy(reward)
+        reward_np = self._to_numpy(reward.float())
         terminated_np = self._to_numpy(terminated)
         truncated_np = self._to_numpy(truncated)
         info_list = [{}] * self.n_envs
@@ -95,5 +95,6 @@ def make_maniskill(
         obs_mode='state',
         num_envs=num_envs,
         max_episode_steps=max_episode_steps,
+        reward_mode='sparse',
     )
     return ManiSkillVecEnv(env, normalization_path=normalization_path)
