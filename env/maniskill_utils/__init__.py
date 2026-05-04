@@ -17,11 +17,12 @@ import torch
 
 
 class ManiSkillVecEnv:
-    def __init__(self, env, normalization_path=None):
+    def __init__(self, env, normalization_path=None, render_video=False):
         self.env = env
         self.n_envs = env.unwrapped.num_envs
         self.observation_space = env.observation_space
         self.action_space = env.action_space
+        self.render_video = render_video
 
         # Load normalization stats if provided
         self.norm = None
@@ -51,22 +52,6 @@ class ManiSkillVecEnv:
         return self._wrap_obs(obs)
 
     def reset_arg(self, options_list=None):
-        # Extract video path from first env's options if present
-        if options_list is not None:
-            for i, options in enumerate(options_list):
-                if options and 'video_path' in options:
-                    # ManiSkill records video differently, required to set up recorder
-                    video_path = options['video_path']
-                    if not hasattr(self, '_recorder_set'):
-                        from mani_skill.utils.wrappers.record import RecordEpisode
-                        self.env = RecordEpisode(
-                            self.env,
-                            output_dir=os.path.dirname(video_path),
-                            save_video=True,
-                            video_fps=20,
-                        )
-                        self._recorder_set = True
-                    break
         obs, info = self.env.reset()
         return self._wrap_obs(obs)
 
@@ -92,6 +77,8 @@ class ManiSkillVecEnv:
         pass
 
     def close(self):
+        if self.render_video:
+            self.env.flush_video()
         self.env.close()
 
 
@@ -102,15 +89,32 @@ def make_maniskill(
     action_dim=8,
     max_episode_steps=200,
     normalization_path=None,
+    render_video=False,
+    video_dir=None,
     **kwargs,
 ):
-    import mani_skill.envs  # noqa: F401
+    import os
+    import mani_skill.envs
     import gymnasium as gym
 
+    render_mode = 'rgb_array' if render_video else None
     env = gym.make(
         id,
         obs_mode='state',
         num_envs=num_envs,
         max_episode_steps=max_episode_steps,
+        render_mode=render_mode,
     )
-    return ManiSkillVecEnv(env, normalization_path=normalization_path)
+
+    if render_video and video_dir is not None:
+        from mani_skill.utils.wrappers.record import RecordEpisode
+        env = RecordEpisode(
+            env,
+            output_dir=video_dir,
+            save_video=True,
+            save_trajectory=False,
+            video_fps=20,
+            max_steps_per_video=max_episode_steps,
+        )
+
+    return ManiSkillVecEnv(env, normalization_path=normalization_path, render_video=render_video)

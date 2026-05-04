@@ -143,3 +143,4 @@ class EvalDiffusionAgent(EvalAgent):
             eval_best_reward=avg_best_reward,
             time=time,
         )
+        self.venv.close()

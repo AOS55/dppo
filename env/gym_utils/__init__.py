@@ -114,6 +114,9 @@ def make_async(
             obs_dim=obs_dim,
             action_dim=action_dim,
             max_episode_steps=max_episode_steps,
+            normalization_path=normalization_path,
+            render_video=render_offscreen,
+            video_dir=kwargs.get('render_dir', None),
         )
 
     # avoid import error due incompatible gym versions
