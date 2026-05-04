@@ -95,6 +95,5 @@ def make_maniskill(
         obs_mode='state',
         num_envs=num_envs,
         max_episode_steps=max_episode_steps,
-        reward_mode='sparse',
     )
     return ManiSkillVecEnv(env, normalization_path=normalization_path)
