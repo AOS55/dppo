@@ -29,6 +29,8 @@ env:
   reset_at_iteration: True
   save_video: False
   best_reward_threshold_for_success: 0.5
+  specific:
+    normalization_path: ${normalization_path}
 
 wandb:
   entity: ${oc.env:DPPO_WANDB_ENTITY}
