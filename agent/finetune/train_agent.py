@@ -1,6 +1,9 @@
 """
 Parent fine-tuning agent class.
 
+Supports two env backends:
+  - "maniskill": GPU-native ManiSkill3 via ManiSkillVecEnv (no `make_async`)
+  - everything else: existing CPU AsyncVectorEnv via make_async
 """
 
 import os
@@ -40,27 +43,42 @@ class TrainAgent:
         # Make vectorized env
         self.env_name = cfg.env.name
         env_type = cfg.env.get("env_type", None)
-        self.venv = make_async(
-            cfg.env.name,
-            env_type=env_type,
-            num_envs=cfg.env.n_envs,
-            asynchronous=True,
-            max_episode_steps=cfg.env.max_episode_steps,
-            wrappers=cfg.env.get("wrappers", None),
-            robomimic_env_cfg_path=cfg.get("robomimic_env_cfg_path", None),
-            shape_meta=cfg.get("shape_meta", None),
-            use_image_obs=cfg.env.get("use_image_obs", False),
-            render=cfg.env.get("render", False),
-            render_offscreen=cfg.env.get("save_video", False),
-            obs_dim=cfg.obs_dim,
-            action_dim=cfg.action_dim,
-            **cfg.env.specific if "specific" in cfg.env else {},
-        )
-        if not env_type == "furniture":
-            self.venv.seed(
-                [self.seed + i for i in range(cfg.env.n_envs)]
-            )  # otherwise parallel envs might have the same initial states!
-            # isaacgym environments do not need seeding
+
+        if env_type == "maniskill":
+            # GPU-native path — bypass make_async entirely
+            from env.maniskill_utils.maniskill_env import make_maniskill
+            specific = cfg.env.specific if "specific" in cfg.env else {}
+            self.venv = make_maniskill(
+                id=cfg.env.name,
+                num_envs=cfg.env.n_envs,
+                obs_dim=cfg.obs_dim,
+                action_dim=cfg.action_dim,
+                max_episode_steps=cfg.env.max_episode_steps,
+                device=cfg.device,
+                **specific,
+            )
+        else:
+            self.venv = make_async(
+                cfg.env.name,
+                env_type=env_type,
+                num_envs=cfg.env.n_envs,
+                asynchronous=True,
+                max_episode_steps=cfg.env.max_episode_steps,
+                wrappers=cfg.env.get("wrappers", None),
+                robomimic_env_cfg_path=cfg.get("robomimic_env_cfg_path", None),
+                shape_meta=cfg.get("shape_meta", None),
+                use_image_obs=cfg.env.get("use_image_obs", False),
+                render=cfg.env.get("render", False),
+                render_offscreen=cfg.env.get("save_video", False),
+                obs_dim=cfg.obs_dim,
+                action_dim=cfg.action_dim,
+                **cfg.env.specific if "specific" in cfg.env else {},
+            )
+            if not env_type == "furniture":
+                self.venv.seed(
+                    [self.seed + i for i in range(cfg.env.n_envs)]
+                )
+
         self.n_envs = cfg.env.n_envs
         self.n_cond_step = cfg.cond_steps
         self.obs_dim = cfg.obs_dim
@@ -149,12 +167,15 @@ class TrainAgent:
                 {k: v for k, v in kwargs.items()} for _ in range(self.n_envs)
             ]
         obs_venv = self.venv.reset_arg(options_list=options_venv)
-        # convert to OrderedDict if obs_venv is a list of dict
+
+        # CPU path: list of dicts -> stack into arrays
         if isinstance(obs_venv, list):
             obs_venv = {
                 key: np.stack([obs_venv[i][key] for i in range(self.n_envs)])
                 for key in obs_venv[0].keys()
             }
+        # GPU path (ManiSkill): already {"state": Tensor}, pass through unchanged
+
         if verbose:
             for index in range(self.n_envs):
                 logging.info(
