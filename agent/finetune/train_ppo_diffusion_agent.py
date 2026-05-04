@@ -50,7 +50,7 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
         run_results = []
         cnt_train_step = 0
         last_itr_eval = False
-        done_venv = np.zeros((1, self.n_envs))
+        done_venv = torch.zeros(self.n_envs, device=self.device)
         while self.itr < self.n_train_itr:
             # Prepare video paths for each envs --- only applies for the first set of episodes if allowing reset within iteration and each iteration has multiple episodes from one env
             options_venv = [{} for _ in range(self.n_envs)]
@@ -66,7 +66,7 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
             last_itr_eval = eval_mode
 
             # Reset env before iteration starts (1) if specified, (2) at eval mode, or (3) right after eval mode
-            firsts_trajs = np.zeros((self.n_steps + 1, self.n_envs))
+            firsts_trajs = torch.zeros((self.n_steps + 1, self.n_envs), device=self.device)
             if self.reset_at_iteration or eval_mode or last_itr_eval:
                 prev_obs_venv = self.reset_env_all(options_venv=options_venv)
                 firsts_trajs[0] = 1
@@ -76,26 +76,23 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
 
             # Holder
             obs_trajs = {
-                "state": np.zeros(
-                    (self.n_steps, self.n_envs, self.n_cond_step, self.obs_dim)
+                "state": torch.zeros(
+                    (self.n_steps, self.n_envs, self.n_cond_step, self.obs_dim),
+                    device=self.device,
                 )
             }
-            chains_trajs = np.zeros(
+            chains_trajs = torch.zeros(
                 (
                     self.n_steps,
                     self.n_envs,
                     self.model.ft_denoising_steps + 1,
                     self.horizon_steps,
                     self.action_dim,
-                )
+                ),
+                device=self.device,
             )
-            terminated_trajs = np.zeros((self.n_steps, self.n_envs))
-            reward_trajs = np.zeros((self.n_steps, self.n_envs))
-            if self.save_full_observations:  # state-only
-                obs_full_trajs = np.empty((0, self.n_envs, self.obs_dim))
-                obs_full_trajs = np.vstack(
-                    (obs_full_trajs, prev_obs_venv["state"][:, -1][None])
-                )
+            terminated_trajs = torch.zeros((self.n_steps, self.n_envs), device=self.device)
+            reward_trajs = torch.zeros((self.n_steps, self.n_envs), device=self.device)
 
             # Collect a set of trajectories from env
             for step in range(self.n_steps):
@@ -104,40 +101,20 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
 
                 # Select action
                 with torch.no_grad():
-                    cond = {
-                        "state": torch.from_numpy(prev_obs_venv["state"])
-                        .float()
-                        .to(self.device)
-                    }
+                    cond = prev_obs_venv
                     samples = self.model(
                         cond=cond,
                         deterministic=eval_mode,
                         return_chain=True,
                     )
-                    output_venv = (
-                        samples.trajectories.cpu().numpy()
-                    )  # n_env x horizon x act
-                    chains_venv = (
-                        samples.chains.cpu().numpy()
-                    )  # n_env x denoising x horizon x act
+                    output_venv = samples.trajectories  # n_env x horizon x act
+                    chains_venv = samples.chains        # n_env x denoising x horizon x act
                 action_venv = output_venv[:, : self.act_steps]
 
                 # Apply multi-step action
-                (
-                    obs_venv,
-                    reward_venv,
-                    terminated_venv,
-                    truncated_venv,
-                    info_venv,
-                ) = self.venv.step(action_venv)
-                done_venv = terminated_venv | truncated_venv
-                if self.save_full_observations:  # state-only
-                    obs_full_venv = np.array(
-                        [info["full_obs"]["state"] for info in info_venv]
-                    )  # n_envs x act_steps x obs_dim
-                    obs_full_trajs = np.vstack(
-                        (obs_full_trajs, obs_full_venv.transpose(1, 0, 2))
-                    )
+                obs_venv, reward_venv, terminated_venv, done_venv, info_venv = (
+                    self.venv.step(action_venv)
+                )
                 obs_trajs["state"][step] = prev_obs_venv["state"]
                 chains_trajs[step] = chains_venv
                 reward_trajs[step] = reward_venv
@@ -150,10 +127,13 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                 # count steps --- not acounting for done within action chunk
                 cnt_train_step += self.n_envs * self.act_steps if not eval_mode else 0
 
-            # Summarize episode reward --- this needs to be handled differently depending on whether the environment is reset after each iteration. Only count episodes that finish within the iteration.
+            # Summarize episode reward --- move to CPU once for scalar bookkeeping
+            firsts_np = firsts_trajs.cpu().numpy()
+            reward_np = reward_trajs.cpu().numpy()
+
             episodes_start_end = []
             for env_ind in range(self.n_envs):
-                env_steps = np.where(firsts_trajs[:, env_ind] == 1)[0]
+                env_steps = np.where(firsts_np[:, env_ind] == 1)[0]
                 for i in range(len(env_steps) - 1):
                     start = env_steps[i]
                     end = env_steps[i + 1]
@@ -161,7 +141,7 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                         episodes_start_end.append((env_ind, start, end - 1))
             if len(episodes_start_end) > 0:
                 reward_trajs_split = [
-                    reward_trajs[start : end + 1, env_ind]
+                    reward_np[start : end + 1, env_ind]
                     for env_ind, start, end in episodes_start_end
                 ]
                 num_episode_finished = len(reward_trajs_split)
@@ -195,10 +175,6 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
             # Update models
             if not eval_mode:
                 with torch.no_grad():
-                    obs_trajs["state"] = (
-                        torch.from_numpy(obs_trajs["state"]).float().to(self.device)
-                    )
-
                     # Calculate value and logprobs - split into batches to prevent out of memory
                     num_split = math.ceil(
                         self.n_envs * self.n_steps / self.logprob_batch_size
@@ -211,57 +187,47 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                     obs_ts_k = torch.split(obs_k, self.logprob_batch_size, dim=0)
                     for i, obs_t in enumerate(obs_ts_k):
                         obs_ts[i]["state"] = obs_t
-                    values_trajs = np.empty((0, self.n_envs))
-                    for obs in obs_ts:
-                        values = self.model.critic(obs).cpu().numpy().flatten()
-                        values_trajs = np.vstack(
-                            (values_trajs, values.reshape(-1, self.n_envs))
-                        )
+
+                    # Critic values — stay on GPU
+                    values_trajs = torch.cat(
+                        [self.model.critic(obs).flatten() for obs in obs_ts]
+                    ).reshape(self.n_steps, self.n_envs)
+
+                    # Logprobs — stay on GPU
                     chains_t = einops.rearrange(
-                        torch.from_numpy(chains_trajs).float().to(self.device),
+                        chains_trajs,
                         "s e t h d -> (s e) t h d",
                     )
                     chains_ts = torch.split(chains_t, self.logprob_batch_size, dim=0)
-                    logprobs_trajs = np.empty(
-                        (
-                            0,
-                            self.model.ft_denoising_steps,
-                            self.horizon_steps,
-                            self.action_dim,
-                        )
+                    logprobs_trajs = torch.cat(
+                        [
+                            self.model.get_logprobs(obs, chains)
+                            for obs, chains in zip(obs_ts, chains_ts)
+                        ]
+                    ).reshape(
+                        self.n_steps * self.n_envs,
+                        self.model.ft_denoising_steps,
+                        self.horizon_steps,
+                        self.action_dim,
                     )
-                    for obs, chains in zip(obs_ts, chains_ts):
-                        logprobs = self.model.get_logprobs(obs, chains).cpu().numpy()
-                        logprobs_trajs = np.vstack(
-                            (
-                                logprobs_trajs,
-                                logprobs.reshape(-1, *logprobs_trajs.shape[1:]),
-                            )
-                        )
 
                     # normalize reward with running variance if specified
                     if self.reward_scale_running:
-                        reward_trajs_transpose = self.running_reward_scaler(
-                            reward=reward_trajs.T, first=firsts_trajs[:-1].T
+                        reward_trajs = torch.tensor(
+                            self.running_reward_scaler(
+                                reward=reward_np.T, first=firsts_np[:-1].T
+                            ).T,
+                            device=self.device,
+                            dtype=torch.float32,
                         )
-                        reward_trajs = reward_trajs_transpose.T
 
                     # bootstrap value with GAE if not terminal - apply reward scaling with constant if specified
-                    obs_venv_ts = {
-                        "state": torch.from_numpy(obs_venv["state"])
-                        .float()
-                        .to(self.device)
-                    }
-                    advantages_trajs = np.zeros_like(reward_trajs)
-                    lastgaelam = 0
+                    obs_venv_ts = obs_venv
+                    advantages_trajs = torch.zeros_like(reward_trajs)
+                    lastgaelam = 0.0
                     for t in reversed(range(self.n_steps)):
                         if t == self.n_steps - 1:
-                            nextvalues = (
-                                self.model.critic(obs_venv_ts)
-                                .reshape(1, -1)
-                                .cpu()
-                                .numpy()
-                            )
+                            nextvalues = self.model.critic(obs_venv_ts).reshape(1, -1)
                         else:
                             nextvalues = values_trajs[t + 1]
                         nonterminal = 1.0 - terminated_trajs[t]
@@ -286,21 +252,18 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                     )
                 }
                 chains_k = einops.rearrange(
-                    torch.tensor(chains_trajs, device=self.device).float(),
+                    chains_trajs,
                     "s e t h d -> (s e) t h d",
                 )
-                returns_k = (
-                    torch.tensor(returns_trajs, device=self.device).float().reshape(-1)
+                returns_k = returns_trajs.reshape(-1)
+                values_k = values_trajs.reshape(-1)
+                advantages_k = advantages_trajs.reshape(-1)
+                logprobs_k = logprobs_trajs.reshape(
+                    self.n_steps * self.n_envs,
+                    self.model.ft_denoising_steps,
+                    self.horizon_steps,
+                    self.action_dim,
                 )
-                values_k = (
-                    torch.tensor(values_trajs, device=self.device).float().reshape(-1)
-                )
-                advantages_k = (
-                    torch.tensor(advantages_trajs, device=self.device)
-                    .float()
-                    .reshape(-1)
-                )
-                logprobs_k = torch.tensor(logprobs_trajs, device=self.device).float()
 
                 # Update policy and critic
                 total_steps = self.n_steps * self.n_envs * self.model.ft_denoising_steps
@@ -424,7 +387,6 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                 }
             )
             if self.save_trajs:
-                run_results[-1]["obs_full_trajs"] = obs_full_trajs
                 run_results[-1]["obs_trajs"] = obs_trajs
                 run_results[-1]["chains_trajs"] = chains_trajs
                 run_results[-1]["reward_trajs"] = reward_trajs
@@ -454,12 +416,14 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                         f"{self.itr}: step {cnt_train_step:8d} | loss {loss:8.4f} | pg loss {pg_loss:8.4f} | value loss {v_loss:8.4f} | bc loss {bc_loss:8.4f} | reward {avg_episode_reward:8.4f} | eta {eta:8.4f} | t:{time:8.4f}"
                     )
                     if self.use_wandb:
-                        # Exploration metrics
-                        final_actions = chains_trajs[:, :, -1, :, :]
+                        # Exploration metrics — pull to CPU for logging only
+                        chains_np = chains_trajs.cpu().numpy()
+                        final_actions = chains_np[:, :, -1, :, :]
                         action_std = float(np.std(final_actions))
                         action_mean_abs = float(np.mean(np.abs(final_actions)))
 
-                        logprob_std_per_step = np.std(logprobs_trajs, axis=0).mean(axis=(-1, -2))
+                        logprobs_np = logprobs_k.cpu().numpy()
+                        logprob_std_per_step = np.std(logprobs_np, axis=0).mean(axis=(-1, -2))
                         exploration_log = {
                             f"exploration/logprob_std_step_{i}": float(logprob_std_per_step[i])
                             for i in range(len(logprob_std_per_step))
@@ -482,7 +446,6 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                                 "diffusion - min sampling std": diffusion_min_sampling_std,
                                 "actor lr": self.actor_optimizer.param_groups[0]["lr"],
                                 "critic lr": self.critic_optimizer.param_groups[0]["lr"],
-                                # Exploration metrics
                                 "exploration/action_std": action_std,
                                 "exploration/action_mean_abs": action_mean_abs,
                                 **exploration_log,
