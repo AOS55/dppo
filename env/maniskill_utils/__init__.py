@@ -55,7 +55,7 @@ class ManiSkillVecEnv:
         if options_list is not None:
             for i, options in enumerate(options_list):
                 if options and 'video_path' in options:
-                    # ManiSkill records video differently - need to set up recorder
+                    # ManiSkill records video differently, required to set up recorder
                     video_path = options['video_path']
                     if not hasattr(self, '_recorder_set'):
                         from mani_skill.utils.wrappers.record import RecordEpisode
