@@ -11,6 +11,7 @@ Key differences handled:
 - obs is flat tensor, not dict — wrapped into {"state": obs} for DPPO
 """
 
+import os
 import numpy as np
 import torch
 
@@ -50,6 +51,22 @@ class ManiSkillVecEnv:
         return self._wrap_obs(obs)
 
     def reset_arg(self, options_list=None):
+        # Extract video path from first env's options if present
+        if options_list is not None:
+            for i, options in enumerate(options_list):
+                if options and 'video_path' in options:
+                    # ManiSkill records video differently - need to set up recorder
+                    video_path = options['video_path']
+                    if not hasattr(self, '_recorder_set'):
+                        from mani_skill.utils.wrappers.record import RecordEpisode
+                        self.env = RecordEpisode(
+                            self.env,
+                            output_dir=os.path.dirname(video_path),
+                            save_video=True,
+                            video_fps=20,
+                        )
+                        self._recorder_set = True
+                    break
         obs, info = self.env.reset()
         return self._wrap_obs(obs)
 
