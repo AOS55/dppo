@@ -107,7 +107,7 @@ def make_async(
         return env
 
     if env_type == "maniskill":
-        from env.maniskill_utils import make_maniskill
+        from env.maniskill_utils.maniskill_env import make_maniskill
         return make_maniskill(
             id=id,
             num_envs=num_envs,
